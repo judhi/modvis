@@ -1,0 +1,981 @@
+<!DOCTYPE html>
+<html lang="en" class="bg-slate-950 text-slate-100">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AM / FM / SSB Modulation Visualizer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        /* Custom scrollbar styling */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #090d16;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #334155;
+            border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #475569;
+        }
+
+        /* Smooth accordion height transition */
+        .accordion-content {
+            transition: max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.25s ease-in-out, padding 0.3s ease;
+            max-height: 2000px;
+            opacity: 1;
+            overflow: hidden;
+        }
+        .accordion-content.collapsed {
+            max-height: 0 !important;
+            opacity: 0 !important;
+            padding-top: 0 !important;
+            padding-bottom: 0 !important;
+            margin-top: 0 !important;
+            margin-bottom: 0 !important;
+            pointer-events: none;
+        }
+
+        .accordion-chevron {
+            transition: transform 0.3s ease;
+        }
+        .accordion-header.collapsed .accordion-chevron {
+            transform: rotate(-90deg);
+        }
+
+        /* Scope card styling */
+        .scope-card {
+            background-color: #060911;
+            border: 1px solid #1e293b;
+            border-radius: 0.5rem;
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+    </style>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-200 flex flex-col font-sans antialiased selection:bg-indigo-500 selection:text-white">
+
+    <!-- Sticky Main Header -->
+    <header class="sticky top-0 z-40 border-b border-slate-800 bg-slate-900/95 backdrop-blur px-4 py-2.5 flex flex-wrap items-center justify-between gap-3 shadow-lg">
+        <div class="flex items-center space-x-3">
+            <div class="bg-gradient-to-tr from-indigo-600 to-cyan-500 p-2 rounded-xl shadow-md shadow-indigo-500/20 text-white">
+                <i class="fa-solid fa-wave-square text-base"></i>
+            </div>
+            <div>
+                <h1 class="text-base font-bold bg-gradient-to-r from-indigo-400 via-cyan-400 to-emerald-300 bg-clip-text text-transparent leading-snug">
+                    Signal Modulation Visualizer
+                </h1>
+                <p class="text-xs text-slate-400">AM • FM • DSB-SC • SSB (USB / LSB) Real-Time Audio DSP Simulator</p>
+            </div>
+        </div>
+
+        <!-- Global Action Controls -->
+        <div class="flex items-center flex-wrap gap-2">
+            <!-- Audio Input Selectors -->
+            <div class="flex items-center bg-slate-950 p-1 rounded-xl border border-slate-800 space-x-1">
+                <button id="btn-mic" class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white transition flex items-center gap-1.5 shadow">
+                    <i class="fa-solid fa-microphone text-xs"></i>
+                    <span>Mic Input</span>
+                </button>
+                <button id="btn-testtone" class="px-3 py-1.5 rounded-lg text-xs font-medium text-slate-400 hover:text-white transition flex items-center gap-1.5">
+                    <i class="fa-solid fa-music text-xs"></i>
+                    <span id="tone-btn-text">Test Tone (440Hz)</span>
+                </button>
+            </div>
+
+            <!-- Tone Freq Toggle -->
+            <button id="btn-tone-freq" class="px-2.5 py-1.5 rounded-xl text-xs font-mono bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800 transition">
+                Tone: <span id="tone-freq-val" class="text-amber-400">440 Hz</span>
+            </button>
+
+            <!-- Status Badge -->
+            <span id="audio-status-badge" class="text-xs px-2.5 py-1.5 rounded-xl bg-slate-900 text-slate-400 border border-slate-800 font-mono">
+                Input: Idle
+            </span>
+
+            <!-- Pause / Freeze Stream -->
+            <button id="btn-freeze" class="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-3 py-1.5 rounded-xl text-xs font-medium transition flex items-center gap-1.5 shadow-sm">
+                <i id="freeze-icon" class="fa-solid fa-pause text-amber-400 text-xs"></i>
+                <span id="freeze-text">Pause</span>
+            </button>
+
+            <div class="h-5 w-px bg-slate-800 mx-0.5 hidden sm:block"></div>
+
+            <!-- Accordion Expand / Collapse Quick Presets -->
+            <div class="flex items-center space-x-1 bg-slate-900 p-1 rounded-xl border border-slate-800">
+                <button id="btn-expand-all" class="px-2.5 py-1 rounded-lg text-xs font-medium text-slate-400 hover:text-cyan-300 hover:bg-slate-800 transition flex items-center gap-1" title="Expand All Sections">
+                    <i class="fa-solid fa-angles-down text-[10px]"></i>
+                    <span class="hidden md:inline">Expand All</span>
+                </button>
+                <button id="btn-collapse-all" class="px-2.5 py-1 rounded-lg text-xs font-medium text-slate-400 hover:text-cyan-300 hover:bg-slate-800 transition flex items-center gap-1" title="Collapse All Sections">
+                    <i class="fa-solid fa-angles-up text-[10px]"></i>
+                    <span class="hidden md:inline">Collapse All</span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content Container -->
+    <main class="flex-1 max-w-7xl w-full mx-auto p-3 sm:p-5 space-y-4">
+
+        <!-- SECTION 1: Modulating Signal m(t) & Simulated Carrier Wave c(t) -->
+        <section class="border border-slate-800 rounded-2xl bg-slate-900/60 shadow-md overflow-hidden">
+            <button class="accordion-header w-full px-4 py-3 bg-slate-900 hover:bg-slate-800/80 transition flex items-center justify-between text-left cursor-pointer border-b border-slate-800/60" data-target="acc-sec-1">
+                <div class="flex items-center space-x-3">
+                    <div class="w-7 h-7 rounded-lg bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400">
+                        <i class="fa-solid fa-wave-square text-xs"></i>
+                    </div>
+                    <div>
+                        <h2 class="text-sm font-bold text-slate-100">Section 1: Modulating Signal $m(t)$ & Simulated Carrier Wave $c(t)$</h2>
+                        <p class="text-xs text-slate-400">Live microphone audio input vs unmodulated radio frequency carrier</p>
+                    </div>
+                </div>
+                <div class="flex items-center space-x-3">
+                    <span class="text-xs font-mono px-2 py-0.5 rounded bg-slate-950 text-cyan-400 border border-slate-800 hidden sm:inline">Input Waves</span>
+                    <i class="fa-solid fa-chevron-down accordion-chevron text-slate-400 text-sm"></i>
+                </div>
+            </button>
+
+            <div id="acc-sec-1" class="accordion-content p-4 space-y-4">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <!-- Scope 1: Modulating Input Audio m(t) -->
+                    <div class="scope-card">
+                        <div class="flex justify-between items-center px-3 py-1.5 border-b border-slate-800 bg-slate-900/80 text-xs font-semibold">
+                            <span class="text-cyan-400 flex items-center gap-1.5">
+                                <i class="fa-solid fa-microphone text-xs"></i>
+                                Modulating Audio Signal $m(t)$
+                            </span>
+                            <span class="text-slate-400 font-mono text-[11px]">Amplitude [-1.0, +1.0]</span>
+                        </div>
+                        <div class="relative w-full h-48 sm:h-56">
+                            <canvas id="canvas-modulating" class="absolute inset-0 w-full h-full block"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- Scope 2: Simulated Carrier Signal c(t) -->
+                    <div class="scope-card">
+                        <div class="flex justify-between items-center px-3 py-1.5 border-b border-slate-800 bg-slate-900/80 text-xs font-semibold">
+                            <span class="text-yellow-400 flex items-center gap-1.5">
+                                <i class="fa-solid fa-bolt text-xs"></i>
+                                Simulated Carrier Wave $c(t) = \cos(2\pi f_c t)$
+                            </span>
+                            <span id="carrier-freq-badge" class="text-yellow-400/90 font-mono text-[11px]">f_c = 25 Hz</span>
+                        </div>
+                        <div class="relative w-full h-48 sm:h-56">
+                            <canvas id="canvas-carrier" class="absolute inset-0 w-full h-full block"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- SECTION 2: Modulated Output s(t) & Frequency Spectrum FFT -->
+        <section class="border border-slate-800 rounded-2xl bg-slate-900/60 shadow-md overflow-hidden">
+            <button class="accordion-header w-full px-4 py-3 bg-slate-900 hover:bg-slate-800/80 transition flex items-center justify-between text-left cursor-pointer border-b border-slate-800/60" data-target="acc-sec-2">
+                <div class="flex items-center space-x-3">
+                    <div class="w-7 h-7 rounded-lg bg-indigo-500/10 border border-indigo-500/30 flex items-center justify-center text-indigo-400">
+                        <i class="fa-solid fa-tower-broadcast text-xs"></i>
+                    </div>
+                    <div>
+                        <h2 class="text-sm font-bold text-slate-100">Section 2: Modulated Signal Output $s(t)$ & Frequency Spectrum FFT</h2>
+                        <p class="text-xs text-slate-400">Transmitted RF modulated waveform and real-time spectral power distribution</p>
+                    </div>
+                </div>
+                <div class="flex items-center space-x-3">
+                    <span class="text-xs font-mono px-2 py-0.5 rounded bg-slate-950 text-indigo-400 border border-slate-800 hidden sm:inline">Transmitted Output</span>
+                    <i class="fa-solid fa-chevron-down accordion-chevron text-slate-400 text-sm"></i>
+                </div>
+            </button>
+
+            <div id="acc-sec-2" class="accordion-content p-4 space-y-4">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <!-- Scope 3: Modulated Waveform Output -->
+                    <div class="scope-card border-indigo-500/30">
+                        <div class="flex justify-between items-center px-3 py-1.5 border-b border-indigo-500/20 bg-slate-900/80 text-xs font-semibold">
+                            <span id="modulated-scope-title" class="text-indigo-300 flex items-center gap-1.5">
+                                <i class="fa-solid fa-tower-broadcast text-xs"></i>
+                                Modulated Output Signal $s(t)$ [AM]
+                            </span>
+                            <span class="text-indigo-400 font-mono text-[11px]">Time Domain</span>
+                        </div>
+                        <div class="relative w-full h-52 sm:h-64">
+                            <canvas id="canvas-modulated" class="absolute inset-0 w-full h-full block"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- Scope 4: Frequency Spectrum Analyzer -->
+                    <div class="scope-card border-emerald-500/30">
+                        <div class="flex justify-between items-center px-3 py-1.5 border-b border-emerald-500/20 bg-slate-900/80 text-xs font-semibold">
+                            <span class="text-emerald-400 flex items-center gap-1.5">
+                                <i class="fa-solid fa-chart-simple text-xs"></i>
+                                Spectral Power Distribution (FFT)
+                            </span>
+                            <span class="text-emerald-400/90 font-mono text-[11px]">Sidebands & Carrier</span>
+                        </div>
+                        <div class="relative w-full h-52 sm:h-64">
+                            <canvas id="canvas-spectrum" class="absolute inset-0 w-full h-full block"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- SECTION 3: Modulation Schemes & Signal Parameter Controls -->
+        <section class="border border-slate-800 rounded-2xl bg-slate-900/60 shadow-md overflow-hidden">
+            <button class="accordion-header w-full px-4 py-3 bg-slate-900 hover:bg-slate-800/80 transition flex items-center justify-between text-left cursor-pointer border-b border-slate-800/60" data-target="acc-sec-3">
+                <div class="flex items-center space-x-3">
+                    <div class="w-7 h-7 rounded-lg bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400">
+                        <i class="fa-solid fa-sliders text-xs"></i>
+                    </div>
+                    <div>
+                        <h2 class="text-sm font-bold text-slate-100">Section 3: Modulation Schemes & Signal Parameter Controls</h2>
+                        <p class="text-xs text-slate-400">Select modulation technique, adjust carrier frequency, gain, and timebase zoom</p>
+                    </div>
+                </div>
+                <div class="flex items-center space-x-3">
+                    <span class="text-xs font-mono px-2 py-0.5 rounded bg-slate-950 text-amber-400 border border-slate-800 hidden sm:inline">Controls & Sliders</span>
+                    <i class="fa-solid fa-chevron-down accordion-chevron text-slate-400 text-sm"></i>
+                </div>
+            </button>
+
+            <div id="acc-sec-3" class="accordion-content p-4 space-y-5">
+                <!-- Mode Selector Buttons -->
+                <div>
+                    <label class="text-xs font-bold uppercase tracking-wider text-slate-300 block mb-2">
+                        Select Modulation Scheme
+                    </label>
+                    <div class="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                        <button data-mode="AM" class="mode-btn bg-indigo-600 text-white font-semibold py-2 px-3 rounded-xl text-xs transition border border-indigo-500 shadow flex flex-col items-center justify-center">
+                            <span class="text-sm font-bold">AM</span>
+                            <span class="text-[10px] opacity-80">Full Carrier</span>
+                        </button>
+                        <button data-mode="FM" class="mode-btn bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium py-2 px-3 rounded-xl text-xs transition border border-slate-700 flex flex-col items-center justify-center">
+                            <span class="text-sm font-bold">FM</span>
+                            <span class="text-[10px] opacity-80">Frequency Mod</span>
+                        </button>
+                        <button data-mode="DSB-SC" class="mode-btn bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium py-2 px-3 rounded-xl text-xs transition border border-slate-700 flex flex-col items-center justify-center">
+                            <span class="text-sm font-bold">DSB-SC</span>
+                            <span class="text-[10px] opacity-80">Suppressed Carrier</span>
+                        </button>
+                        <button data-mode="USB" class="mode-btn bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium py-2 px-3 rounded-xl text-xs transition border border-slate-700 flex flex-col items-center justify-center">
+                            <span class="text-sm font-bold">SSB (USB)</span>
+                            <span class="text-[10px] opacity-80">Upper Sideband</span>
+                        </button>
+                        <button data-mode="LSB" class="mode-btn bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium py-2 px-3 rounded-xl text-xs transition border border-slate-700 flex flex-col items-center justify-center">
+                            <span class="text-sm font-bold">SSB (LSB)</span>
+                            <span class="text-[10px] opacity-80">Lower Sideband</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Sliders Grid -->
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 pt-2">
+                    <!-- Audio Mic Gain -->
+                    <div class="bg-slate-950 p-3 rounded-xl border border-slate-800 space-y-1.5">
+                        <div class="flex justify-between items-center text-xs">
+                            <span class="text-slate-300 font-semibold flex items-center gap-1.5">
+                                <i class="fa-solid fa-volume-high text-cyan-400"></i> Modulating Gain $m(t)$
+                            </span>
+                            <span id="val-mic-gain" class="font-mono text-cyan-400 font-bold">1.5x</span>
+                        </div>
+                        <input id="slider-mic-gain" type="range" min="0.2" max="3.0" step="0.1" value="1.5" class="w-full accent-cyan-400 bg-slate-800 h-2 rounded-lg appearance-none cursor-pointer">
+                    </div>
+
+                    <!-- Carrier Frequency fc -->
+                    <div class="bg-slate-950 p-3 rounded-xl border border-slate-800 space-y-1.5">
+                        <div class="flex justify-between items-center text-xs">
+                            <span class="text-slate-300 font-semibold flex items-center gap-1.5">
+                                <i class="fa-solid fa-bolt text-yellow-400"></i> Carrier Frequency ($f_c$)
+                            </span>
+                            <span id="val-fc" class="font-mono text-yellow-400 font-bold">25 Hz</span>
+                        </div>
+                        <input id="slider-fc" type="range" min="10" max="60" step="1" value="25" class="w-full accent-yellow-400 bg-slate-800 h-2 rounded-lg appearance-none cursor-pointer">
+                    </div>
+
+                    <!-- AM Modulation Index mu -->
+                    <div id="param-group-am" class="bg-slate-950 p-3 rounded-xl border border-slate-800 space-y-1.5">
+                        <div class="flex justify-between items-center text-xs">
+                            <span class="text-slate-300 font-semibold flex items-center gap-1.5">
+                                <i class="fa-solid fa-gauge-high text-emerald-400"></i> AM Modulation Index ($\mu$)
+                            </span>
+                            <span id="val-am-index" class="font-mono text-emerald-400 font-bold">0.80</span>
+                        </div>
+                        <input id="slider-am-index" type="range" min="0.1" max="2.0" step="0.05" value="0.8" class="w-full accent-emerald-400 bg-slate-800 h-2 rounded-lg appearance-none cursor-pointer">
+                    </div>
+
+                    <!-- FM Frequency Deviation beta -->
+                    <div id="param-group-fm" class="hidden bg-slate-950 p-3 rounded-xl border border-slate-800 space-y-1.5">
+                        <div class="flex justify-between items-center text-xs">
+                            <span class="text-slate-300 font-semibold flex items-center gap-1.5">
+                                <i class="fa-solid fa-arrows-left-right text-pink-400"></i> FM Deviation ($\beta$)
+                            </span>
+                            <span id="val-fm-beta" class="font-mono text-pink-400 font-bold">15.0</span>
+                        </div>
+                        <input id="slider-fm-beta" type="range" min="1" max="40" step="1" value="15" class="w-full accent-pink-400 bg-slate-800 h-2 rounded-lg appearance-none cursor-pointer">
+                    </div>
+
+                    <!-- Oscilloscope Timebase Zoom -->
+                    <div class="bg-slate-950 p-3 rounded-xl border border-slate-800 space-y-1.5">
+                        <div class="flex justify-between items-center text-xs">
+                            <span class="text-slate-300 font-semibold flex items-center gap-1.5">
+                                <i class="fa-solid fa-magnifying-glass-plus text-indigo-400"></i> Timebase / Sweep Zoom
+                            </span>
+                            <span id="val-timebase" class="font-mono text-indigo-400 font-bold">1.0x</span>
+                        </div>
+                        <input id="slider-timebase" type="range" min="0.5" max="3.0" step="0.1" value="1.0" class="w-full accent-indigo-400 bg-slate-800 h-2 rounded-lg appearance-none cursor-pointer">
+                    </div>
+
+                    <!-- Overlay Toggles -->
+                    <div class="bg-slate-950 p-3 rounded-xl border border-slate-800 flex flex-col justify-center space-y-2">
+                        <label class="text-xs text-slate-300 cursor-pointer flex items-center space-x-2">
+                            <input id="check-envelope" type="checkbox" checked class="rounded border-slate-700 bg-slate-800 text-yellow-500 focus:ring-0 cursor-pointer">
+                            <span>AM Envelope Curve Overlay</span>
+                        </label>
+                        <label class="text-xs text-slate-300 cursor-pointer flex items-center space-x-2">
+                            <input id="check-fft-peaks" type="checkbox" checked class="rounded border-slate-700 bg-slate-800 text-emerald-500 focus:ring-0 cursor-pointer">
+                            <span>Spectral Markers ($f_c$, USB, LSB)</span>
+                        </label>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- SECTION 4: Mathematical Equations & Signal Metrics -->
+        <section class="border border-slate-800 rounded-2xl bg-slate-900/60 shadow-md overflow-hidden">
+            <button class="accordion-header w-full px-4 py-3 bg-slate-900 hover:bg-slate-800/80 transition flex items-center justify-between text-left cursor-pointer border-b border-slate-800/60" data-target="acc-sec-4">
+                <div class="flex items-center space-x-3">
+                    <div class="w-7 h-7 rounded-lg bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
+                        <i class="fa-solid fa-calculator text-xs"></i>
+                    </div>
+                    <div>
+                        <h2 class="text-sm font-bold text-slate-100">Section 4: Mathematical Models & Signal Metrics</h2>
+                        <p class="text-xs text-slate-400">Dynamic equation definitions, bandwidth calculation, and transmission efficiency</p>
+                    </div>
+                </div>
+                <div class="flex items-center space-x-3">
+                    <span class="text-xs font-mono px-2 py-0.5 rounded bg-slate-950 text-emerald-400 border border-slate-800 hidden sm:inline">Theory & Equations</span>
+                    <i class="fa-solid fa-chevron-down accordion-chevron text-slate-400 text-sm"></i>
+                </div>
+            </button>
+
+            <div id="acc-sec-4" class="accordion-content p-4 space-y-4">
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                    
+                    <!-- Dynamic Math Formula Box -->
+                    <div class="lg:col-span-2 bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-2">
+                        <span class="text-xs font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                            <i class="fa-solid fa-square-root-variable text-cyan-400"></i> Dynamic Equation
+                        </span>
+                        <div id="formula-box" class="bg-slate-900 px-4 py-3 rounded-lg border border-slate-800 text-sm font-mono text-cyan-300 text-center font-semibold overflow-x-auto">
+                            s(t) = [1 + μ · m(t)] · cos(2π f_c t)
+                        </div>
+                        <p id="formula-description" class="text-xs text-slate-400 leading-relaxed pt-1">
+                            Standard Amplitude Modulation (AM) varies carrier envelope amplitude in direct proportion to modulating audio $m(t)$. Transmits carrier plus USB and LSB sidebands.
+                        </p>
+                    </div>
+
+                    <!-- Metrics Grid -->
+                    <div class="grid grid-cols-2 gap-3">
+                        <div class="bg-slate-950 p-3.5 rounded-xl border border-slate-800 flex flex-col justify-between">
+                            <span class="text-slate-400 text-xs font-semibold uppercase tracking-wider">Bandwidth</span>
+                            <div>
+                                <span id="metric-bw" class="font-mono text-emerald-400 font-bold text-lg block">2 × f_m</span>
+                                <span class="text-[10px] text-slate-500">RF Spectrum Span</span>
+                            </div>
+                        </div>
+
+                        <div class="bg-slate-950 p-3.5 rounded-xl border border-slate-800 flex flex-col justify-between">
+                            <span class="text-slate-400 text-xs font-semibold uppercase tracking-wider">Power Efficiency</span>
+                            <div>
+                                <span id="metric-eff" class="font-mono text-amber-400 font-bold text-lg block">~33.3%</span>
+                                <span class="text-[10px] text-slate-500">Sideband Power Ratio</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Hilbert Transform & Sideband Explanation Card -->
+                <div class="bg-slate-950/80 p-4 rounded-xl border border-slate-800/80 text-xs text-slate-300 space-y-2">
+                    <h3 class="font-semibold text-slate-200 flex items-center gap-2">
+                        <i class="fa-solid fa-circle-info text-indigo-400"></i> Single Sideband (SSB) & Hilbert Transform ($\hat{m}(t)$) Mechanics
+                    </h3>
+                    <p class="text-slate-400 leading-relaxed">
+                        To construct SSB waveforms without complex filtering, the <strong>Hilbert Transform</strong> generates a 90° ($\pi/2$) phase-shifted version $\hat{m}(t)$ of the modulating audio. Combining the in-phase product $m(t)\cos(\omega_c t)$ and quadrature product $\hat{m}(t)\sin(\omega_c t)$ results in constructive interference for one sideband and complete destructive cancellation for the other.
+                    </p>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <script>
+        const CONFIG = {
+            bufferSize: 512,
+        };
+
+        const state = {
+            audioContext: null,
+            analyserNode: null,
+            micStream: null,
+            testToneOsc: null,
+            sourceType: 'none',
+            testToneFreq: 440,
+            
+            // Modulation Parameters
+            mode: 'AM',
+            micGain: 1.5,
+            carrierFreq: 25,
+            amIndex: 0.8,
+            fmBeta: 15,
+            timebase: 1.0,
+            showEnvelope: true,
+            showFftPeaks: true,
+            isFrozen: false,
+
+            // Audio Signal Buffers
+            audioBuffer: new Float32Array(CONFIG.bufferSize),
+            hilbertBuffer: new Float32Array(CONFIG.bufferSize),
+            simPhase: 0,
+        };
+
+        const elements = {
+            btnMic: document.getElementById('btn-mic'),
+            btnTestTone: document.getElementById('btn-testtone'),
+            btnToneFreq: document.getElementById('btn-tone-freq'),
+            toneFreqVal: document.getElementById('tone-freq-val'),
+            toneBtnText: document.getElementById('tone-btn-text'),
+            btnFreeze: document.getElementById('btn-freeze'),
+            audioStatusBadge: document.getElementById('audio-status-badge'),
+            
+            btnExpandAll: document.getElementById('btn-expand-all'),
+            btnCollapseAll: document.getElementById('btn-collapse-all'),
+
+            sliderMicGain: document.getElementById('slider-mic-gain'),
+            valMicGain: document.getElementById('val-mic-gain'),
+            sliderFc: document.getElementById('slider-fc'),
+            valFc: document.getElementById('val-fc'),
+            carrierFreqBadge: document.getElementById('carrier-freq-badge'),
+            sliderAmIndex: document.getElementById('slider-am-index'),
+            valAmIndex: document.getElementById('val-am-index'),
+            sliderFmBeta: document.getElementById('slider-fm-beta'),
+            valFmBeta: document.getElementById('val-fm-beta'),
+            sliderTimebase: document.getElementById('slider-timebase'),
+            valTimebase: document.getElementById('val-timebase'),
+            
+            paramGroupAm: document.getElementById('param-group-am'),
+            paramGroupFm: document.getElementById('param-group-fm'),
+
+            checkEnvelope: document.getElementById('check-envelope'),
+            checkFftPeaks: document.getElementById('check-fft-peaks'),
+
+            formulaBox: document.getElementById('formula-box'),
+            formulaDescription: document.getElementById('formula-description'),
+            metricBw: document.getElementById('metric-bw'),
+            metricEff: document.getElementById('metric-eff'),
+            modulatedScopeTitle: document.getElementById('modulated-scope-title'),
+
+            canvasMod: document.getElementById('canvas-modulating'),
+            canvasCarrier: document.getElementById('canvas-carrier'),
+            canvasModulated: document.getElementById('canvas-modulated'),
+            canvasSpectrum: document.getElementById('canvas-spectrum'),
+        };
+
+        function initAudioContext() {
+            if (!state.audioContext) {
+                const AudioCtx = window.AudioContext || window.webkitAudioContext;
+                state.audioContext = new AudioCtx();
+                state.analyserNode = state.audioContext.createAnalyser();
+                state.analyserNode.fftSize = CONFIG.bufferSize * 2;
+            }
+            if (state.audioContext.state === 'suspended') {
+                state.audioContext.resume();
+            }
+        }
+
+        async function startMicrophone() {
+            try {
+                initAudioContext();
+                stopAudioSources();
+
+                state.micStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+                const sourceNode = state.audioContext.createMediaStreamSource(state.micStream);
+                sourceNode.connect(state.analyserNode);
+                state.sourceType = 'mic';
+
+                elements.audioStatusBadge.textContent = "Input: Live Mic";
+                elements.audioStatusBadge.className = "text-xs px-2.5 py-1.5 rounded-xl bg-emerald-950 text-emerald-400 border border-emerald-800 font-mono";
+                elements.btnMic.className = "px-3 py-1.5 rounded-lg text-xs font-semibold bg-red-600 hover:bg-red-500 text-white transition flex items-center gap-1.5 shadow";
+                elements.btnMic.innerHTML = `<i class="fa-solid fa-microphone-slash text-xs"></i><span>Stop Mic</span>`;
+            } catch (err) {
+                alert("Microphone access denied or unavailable: " + err.message);
+            }
+        }
+
+        function startTestTone() {
+            initAudioContext();
+            stopAudioSources();
+
+            state.testToneOsc = state.audioContext.createOscillator();
+            state.testToneOsc.type = 'sine';
+            state.testToneOsc.frequency.setValueAtTime(state.testToneFreq, state.audioContext.currentTime);
+
+            const gainNode = state.audioContext.createGain();
+            gainNode.gain.setValueAtTime(0.5, state.audioContext.currentTime);
+
+            state.testToneOsc.connect(gainNode);
+            gainNode.connect(state.analyserNode);
+
+            state.testToneOsc.start();
+            state.sourceType = 'test';
+
+            elements.audioStatusBadge.textContent = `Input: ${state.testToneFreq}Hz Tone`;
+            elements.audioStatusBadge.className = "text-xs px-2.5 py-1.5 rounded-xl bg-amber-950 text-amber-400 border border-amber-800 font-mono";
+            elements.btnTestTone.className = "px-3 py-1.5 rounded-lg text-xs font-semibold bg-amber-600 hover:bg-amber-500 text-white transition flex items-center gap-1.5 shadow";
+        }
+
+        function stopAudioSources() {
+            if (state.micStream) {
+                state.micStream.getTracks().forEach(t => t.stop());
+                state.micStream = null;
+            }
+            if (state.testToneOsc) {
+                state.testToneOsc.stop();
+                state.testToneOsc.disconnect();
+                state.testToneOsc = null;
+            }
+            state.sourceType = 'none';
+            elements.audioStatusBadge.textContent = "Input: Idle";
+            elements.audioStatusBadge.className = "text-xs px-2.5 py-1.5 rounded-xl bg-slate-900 text-slate-400 border border-slate-800 font-mono";
+            elements.btnMic.className = "px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white transition flex items-center gap-1.5 shadow";
+            elements.btnMic.innerHTML = `<i class="fa-solid fa-microphone text-xs"></i><span>Mic Input</span>`;
+            elements.btnTestTone.className = "px-3 py-1.5 rounded-lg text-xs font-medium text-slate-400 hover:text-white transition flex items-center gap-1.5";
+        }
+
+        function computeHilbertTransform(input, output) {
+            const N = input.length;
+            const halfM = 20;
+            for (let n = 0; n < N; n++) {
+                let sum = 0;
+                for (let k = -halfM; k <= halfM; k++) {
+                    if (k % 2 !== 0) {
+                        const h_k = 2 / (Math.PI * k);
+                        const idx = n - k;
+                        if (idx >= 0 && idx < N) {
+                            sum += input[idx] * h_k;
+                        }
+                    }
+                }
+                output[n] = sum;
+            }
+        }
+
+        function setupCanvasSize(canvas) {
+            const rect = canvas.getBoundingClientRect();
+            const dpr = window.devicePixelRatio || 1;
+            
+            if (rect.width > 0 && rect.height > 0) {
+                const targetW = Math.floor(rect.width * dpr);
+                const targetH = Math.floor(rect.height * dpr);
+                if (canvas.width !== targetW || canvas.height !== targetH) {
+                    canvas.width = targetW;
+                    canvas.height = targetH;
+                }
+            }
+        }
+
+        function drawGrid(ctx, w, h) {
+            ctx.strokeStyle = "rgba(30, 41, 59, 0.4)";
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            
+            ctx.moveTo(0, h / 2);
+            ctx.lineTo(w, h / 2);
+            
+            for (let x = 0; x < w; x += 40) {
+                ctx.moveTo(x, 0); ctx.lineTo(x, h);
+            }
+            for (let y = 0; y < h; y += 20) {
+                ctx.moveTo(0, y); ctx.lineTo(w, y);
+            }
+            ctx.stroke();
+        }
+
+        function renderLoop() {
+            requestAnimationFrame(renderLoop);
+            if (state.isFrozen) return;
+
+            if (state.analyserNode && state.sourceType !== 'none') {
+                const rawAudio = new Float32Array(CONFIG.bufferSize);
+                state.analyserNode.getFloatTimeDomainData(rawAudio);
+
+                for (let i = 0; i < CONFIG.bufferSize; i++) {
+                    let val = rawAudio[i] * state.micGain;
+                    state.audioBuffer[i] = Math.max(-1.0, Math.min(1.0, val));
+                }
+            } else {
+                state.simPhase += 0.03;
+                for (let i = 0; i < CONFIG.bufferSize; i++) {
+                    const t = (i / CONFIG.bufferSize) * 2 * Math.PI * 2;
+                    state.audioBuffer[i] = (Math.sin(t + state.simPhase) * 0.6 + Math.sin(t * 2.3 + state.simPhase) * 0.3) * (state.micGain * 0.7);
+                }
+            }
+
+            if (state.mode === 'USB' || state.mode === 'LSB') {
+                computeHilbertTransform(state.audioBuffer, state.hilbertBuffer);
+            }
+
+            drawModulatingScope();
+            drawCarrierScope();
+            drawModulatedScope();
+            drawSpectrumScope();
+        }
+
+        function drawModulatingScope() {
+            const canvas = elements.canvasMod;
+            setupCanvasSize(canvas);
+            const ctx = canvas.getContext('2d');
+            const w = canvas.width, h = canvas.height;
+
+            ctx.clearRect(0, 0, w, h);
+            drawGrid(ctx, w, h);
+
+            ctx.strokeStyle = '#06b6d4';
+            ctx.lineWidth = 2 * (window.devicePixelRatio || 1);
+            ctx.beginPath();
+
+            const samplesToDraw = Math.floor(CONFIG.bufferSize / state.timebase);
+            const dx = w / (samplesToDraw - 1);
+
+            for (let i = 0; i < samplesToDraw; i++) {
+                const x = i * dx;
+                const y = (h / 2) - (state.audioBuffer[i] * (h / 2 - 12));
+                if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+            }
+            ctx.stroke();
+        }
+
+        function drawCarrierScope() {
+            const canvas = elements.canvasCarrier;
+            setupCanvasSize(canvas);
+            const ctx = canvas.getContext('2d');
+            const w = canvas.width, h = canvas.height;
+
+            ctx.clearRect(0, 0, w, h);
+            drawGrid(ctx, w, h);
+
+            ctx.strokeStyle = '#eab308';
+            ctx.lineWidth = 1.5 * (window.devicePixelRatio || 1);
+            ctx.beginPath();
+
+            const samplesToDraw = Math.floor(CONFIG.bufferSize / state.timebase);
+            const dx = w / (samplesToDraw - 1);
+            const fc = state.carrierFreq;
+
+            for (let i = 0; i < samplesToDraw; i++) {
+                const t = i / CONFIG.bufferSize;
+                const x = i * dx;
+                const y = (h / 2) - (Math.cos(2 * Math.PI * fc * t) * (h / 2 - 12));
+                if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+            }
+            ctx.stroke();
+        }
+
+        function drawModulatedScope() {
+            const canvas = elements.canvasModulated;
+            setupCanvasSize(canvas);
+            const ctx = canvas.getContext('2d');
+            const w = canvas.width, h = canvas.height;
+
+            ctx.clearRect(0, 0, w, h);
+            drawGrid(ctx, w, h);
+
+            const samplesToDraw = Math.floor(CONFIG.bufferSize / state.timebase);
+            const dx = w / (samplesToDraw - 1);
+            const fc = state.carrierFreq;
+            
+            const modulatedBuffer = new Float32Array(samplesToDraw);
+            const upperEnvelope = new Float32Array(samplesToDraw);
+
+            let fmPhase = 0;
+
+            for (let i = 0; i < samplesToDraw; i++) {
+                const t = i / CONFIG.bufferSize;
+                const m = state.audioBuffer[i];
+                const mHat = state.hilbertBuffer[i] || 0;
+                const cosC = Math.cos(2 * Math.PI * fc * t);
+                const sinC = Math.sin(2 * Math.PI * fc * t);
+
+                if (state.mode === 'AM') {
+                    const env = 1 + state.amIndex * m;
+                    modulatedBuffer[i] = env * cosC;
+                    upperEnvelope[i] = Math.abs(env);
+                } else if (state.mode === 'FM') {
+                    fmPhase += m * (state.fmBeta / 12);
+                    modulatedBuffer[i] = Math.cos(2 * Math.PI * fc * t + fmPhase);
+                    upperEnvelope[i] = 1.0;
+                } else if (state.mode === 'DSB-SC') {
+                    modulatedBuffer[i] = m * cosC;
+                    upperEnvelope[i] = Math.abs(m);
+                } else if (state.mode === 'USB') {
+                    modulatedBuffer[i] = m * cosC - mHat * sinC;
+                    upperEnvelope[i] = Math.sqrt(m * m + mHat * mHat);
+                } else if (state.mode === 'LSB') {
+                    modulatedBuffer[i] = m * cosC + mHat * sinC;
+                    upperEnvelope[i] = Math.sqrt(m * m + mHat * mHat);
+                }
+            }
+
+            // AM Envelope Tracing
+            if (state.showEnvelope && (state.mode === 'AM' || state.mode === 'DSB-SC' || state.mode === 'USB' || state.mode === 'LSB')) {
+                ctx.strokeStyle = 'rgba(234, 179, 8, 0.7)';
+                ctx.setLineDash([4, 4]);
+                ctx.lineWidth = 1.5 * (window.devicePixelRatio || 1);
+
+                ctx.beginPath();
+                for (let i = 0; i < samplesToDraw; i++) {
+                    const x = i * dx;
+                    const y = (h / 2) - (upperEnvelope[i] * (h / 2.6));
+                    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+                }
+                ctx.stroke();
+
+                ctx.beginPath();
+                for (let i = 0; i < samplesToDraw; i++) {
+                    const x = i * dx;
+                    const y = (h / 2) + (upperEnvelope[i] * (h / 2.6));
+                    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+                }
+                ctx.stroke();
+                ctx.setLineDash([]);
+            }
+
+            ctx.strokeStyle = state.mode === 'FM' ? '#ec4899' : '#818cf8';
+            ctx.lineWidth = 2 * (window.devicePixelRatio || 1);
+            ctx.beginPath();
+
+            for (let i = 0; i < samplesToDraw; i++) {
+                const x = i * dx;
+                const y = (h / 2) - (modulatedBuffer[i] * (h / 2.6));
+                if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+            }
+            ctx.stroke();
+        }
+
+        function drawSpectrumScope() {
+            const canvas = elements.canvasSpectrum;
+            setupCanvasSize(canvas);
+            const ctx = canvas.getContext('2d');
+            const w = canvas.width, h = canvas.height;
+
+            ctx.clearRect(0, 0, w, h);
+            drawGrid(ctx, w, h);
+
+            const centerBandX = w / 2;
+            const audioOffset = w * 0.16;
+
+            if (state.mode === 'AM') {
+                drawBar(ctx, centerBandX, h * 0.65, "f_c", false);
+                drawBar(ctx, centerBandX + audioOffset, h * 0.35, "USB", false);
+                drawBar(ctx, centerBandX - audioOffset, h * 0.35, "LSB", false);
+            } else if (state.mode === 'DSB-SC') {
+                drawBar(ctx, centerBandX, h * 0.05, "Suppressed", true);
+                drawBar(ctx, centerBandX + audioOffset, h * 0.45, "USB", false);
+                drawBar(ctx, centerBandX - audioOffset, h * 0.45, "LSB", false);
+            } else if (state.mode === 'USB') {
+                drawBar(ctx, centerBandX, h * 0.05, "Suppressed", true);
+                drawBar(ctx, centerBandX + audioOffset, h * 0.55, "USB Active", false);
+            } else if (state.mode === 'LSB') {
+                drawBar(ctx, centerBandX, h * 0.05, "Suppressed", true);
+                drawBar(ctx, centerBandX - audioOffset, h * 0.55, "LSB Active", false);
+            } else if (state.mode === 'FM') {
+                drawBar(ctx, centerBandX, h * 0.55, "f_c", false);
+                for (let k = 1; k <= 3; k++) {
+                    const height = (h * 0.4) / k;
+                    drawBar(ctx, centerBandX + k * (audioOffset * 0.4), height, "", false);
+                    drawBar(ctx, centerBandX - k * (audioOffset * 0.4), height, "", false);
+                }
+            }
+        }
+
+        function drawBar(ctx, x, height, label, isDashed) {
+            const hCanvas = ctx.canvas.height;
+            const dpr = window.devicePixelRatio || 1;
+            ctx.save();
+            ctx.lineWidth = 3 * dpr;
+            ctx.strokeStyle = isDashed ? '#64748b' : '#34d399';
+            if (isDashed) ctx.setLineDash([3 * dpr, 3 * dpr]);
+
+            ctx.beginPath();
+            ctx.moveTo(x, hCanvas - (12 * dpr));
+            ctx.lineTo(x, hCanvas - (12 * dpr) - height);
+            ctx.stroke();
+
+            if (label && state.showFftPeaks) {
+                ctx.fillStyle = isDashed ? '#94a3b8' : '#34d399';
+                ctx.font = `bold ${10 * dpr}px monospace`;
+                ctx.textAlign = 'center';
+                ctx.fillText(label, x, hCanvas - (16 * dpr) - height);
+            }
+            ctx.restore();
+        }
+
+        function setupAccordionListeners() {
+            document.querySelectorAll('.accordion-header').forEach(header => {
+                header.addEventListener('click', () => {
+                    const targetId = header.getAttribute('data-target');
+                    const content = document.getElementById(targetId);
+                    
+                    header.classList.toggle('collapsed');
+                    content.classList.toggle('collapsed');
+
+                    // Trigger canvas resize recalculation after transition
+                    setTimeout(() => {
+                        window.dispatchEvent(new Event('resize'));
+                    }, 310);
+                });
+            });
+
+            elements.btnExpandAll.addEventListener('click', () => {
+                document.querySelectorAll('.accordion-header').forEach(h => h.classList.remove('collapsed'));
+                document.querySelectorAll('.accordion-content').forEach(c => c.classList.remove('collapsed'));
+                setTimeout(() => window.dispatchEvent(new Event('resize')), 310);
+            });
+
+            elements.btnCollapseAll.addEventListener('click', () => {
+                document.querySelectorAll('.accordion-header').forEach(h => h.classList.add('collapsed'));
+                document.querySelectorAll('.accordion-content').forEach(c => c.classList.add('collapsed'));
+                setTimeout(() => window.dispatchEvent(new Event('resize')), 310);
+            });
+        }
+
+        function registerEventListeners() {
+            setupAccordionListeners();
+
+            elements.btnMic.addEventListener('click', () => {
+                if (state.sourceType === 'mic') stopAudioSources();
+                else startMicrophone();
+            });
+
+            elements.btnTestTone.addEventListener('click', () => {
+                if (state.sourceType === 'test') stopAudioSources();
+                else startTestTone();
+            });
+
+            elements.btnToneFreq.addEventListener('click', () => {
+                state.testToneFreq = state.testToneFreq === 440 ? 1000 : 440;
+                elements.toneFreqVal.textContent = `${state.testToneFreq} Hz`;
+                elements.toneBtnText.textContent = `Test Tone (${state.testToneFreq}Hz)`;
+                if (state.sourceType === 'test') {
+                    startTestTone();
+                }
+            });
+
+            elements.btnFreeze.addEventListener('click', () => {
+                state.isFrozen = !state.isFrozen;
+                document.getElementById('freeze-text').textContent = state.isFrozen ? "Resume" : "Pause";
+                document.getElementById('freeze-icon').className = state.isFrozen ? "fa-solid fa-play text-emerald-400 text-xs" : "fa-solid fa-pause text-amber-400 text-xs";
+            });
+
+            document.querySelectorAll('.mode-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    document.querySelectorAll('.mode-btn').forEach(b => {
+                        b.className = "mode-btn bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium py-2 px-3 rounded-xl text-xs transition border border-slate-700 flex flex-col items-center justify-center";
+                    });
+                    btn.className = "mode-btn bg-indigo-600 text-white font-semibold py-2 px-3 rounded-xl text-xs transition border border-indigo-500 shadow flex flex-col items-center justify-center";
+                    state.mode = btn.getAttribute('data-mode');
+                    updateModeUI();
+                });
+            });
+
+            elements.sliderMicGain.addEventListener('input', (e) => {
+                state.micGain = parseFloat(e.target.value);
+                elements.valMicGain.textContent = state.micGain.toFixed(1) + 'x';
+            });
+
+            elements.sliderFc.addEventListener('input', (e) => {
+                state.carrierFreq = parseInt(e.target.value);
+                elements.valFc.textContent = `${state.carrierFreq} Hz`;
+                elements.carrierFreqBadge.textContent = `f_c = ${state.carrierFreq} Hz`;
+            });
+
+            elements.sliderAmIndex.addEventListener('input', (e) => {
+                state.amIndex = parseFloat(e.target.value);
+                elements.valAmIndex.textContent = state.amIndex.toFixed(2);
+                if (state.mode === 'AM') {
+                    elements.metricEff.textContent = `~${((state.amIndex**2 / (2 + state.amIndex**2)) * 100).toFixed(1)}%`;
+                }
+            });
+
+            elements.sliderFmBeta.addEventListener('input', (e) => {
+                state.fmBeta = parseFloat(e.target.value);
+                elements.valFMbeta = state.fmBeta.toFixed(1);
+            });
+
+            elements.sliderTimebase.addEventListener('input', (e) => {
+                state.timebase = parseFloat(e.target.value);
+                elements.valTimebase.textContent = state.timebase.toFixed(1) + 'x';
+            });
+
+            elements.checkEnvelope.addEventListener('change', (e) => state.showEnvelope = e.target.checked);
+            elements.checkFftPeaks.addEventListener('change', (e) => state.showFftPeaks = e.target.checked);
+        }
+
+        function updateModeUI() {
+            elements.paramGroupAm.classList.toggle('hidden', state.mode !== 'AM');
+            elements.paramGroupFm.classList.toggle('hidden', state.mode !== 'FM');
+
+            const models = {
+                'AM': { 
+                    formula: 's(t) = [1 + μ · m(t)] · cos(2π f_c t)', 
+                    bw: '2 × f_m', 
+                    eff: `~${((state.amIndex**2 / (2 + state.amIndex**2)) * 100).toFixed(1)}%`,
+                    desc: 'Standard Amplitude Modulation (AM) varies carrier envelope amplitude in direct proportion to modulating audio m(t). Transmits carrier plus USB and LSB sidebands.' 
+                },
+                'FM': { 
+                    formula: 's(t) = cos(2π f_c t + β ∫ m(τ) dτ)', 
+                    bw: '2(β + 1)f_m', 
+                    eff: '100% (Const)',
+                    desc: 'Frequency Modulation (FM) modulates the instantaneous carrier frequency proportionally to m(t) while maintaining a constant amplitude envelope.'
+                },
+                'DSB-SC': { 
+                    formula: 's(t) = m(t) · cos(2π f_c t)', 
+                    bw: '2 × f_m', 
+                    eff: '100% (Sideband)',
+                    desc: 'Double Sideband Suppressed Carrier (DSB-SC) eliminates the high-power carrier wave, transmitting only upper and lower sidebands for 100% power efficiency.'
+                },
+                'USB': { 
+                    formula: 's_USB(t) = m(t)cos(ω_c t) - m̂(t)sin(ω_c t)', 
+                    bw: '1 × f_m (1/2 AM)', 
+                    eff: '100% (Optimal)',
+                    desc: 'Single Sideband Upper Sideband (SSB-USB) uses Hilbert phase shifting m̂(t) to completely suppress both carrier and Lower Sideband (LSB), cutting required bandwidth in half.'
+                },
+                'LSB': { 
+                    formula: 's_LSB(t) = m(t)cos(ω_c t) + m̂(t)sin(ω_c t)', 
+                    bw: '1 × f_m (1/2 AM)', 
+                    eff: '100% (Optimal)',
+                    desc: 'Single Sideband Lower Sideband (SSB-LSB) uses Hilbert phase shifting m̂(t) to suppress carrier and Upper Sideband (USB), achieving maximum spectral and power efficiency.'
+                }
+            };
+
+            const info = models[state.mode];
+            elements.formulaBox.textContent = info.formula;
+            elements.formulaDescription.textContent = info.desc;
+            elements.metricBw.textContent = info.bw;
+            elements.metricEff.textContent = info.eff;
+            elements.modulatedScopeTitle.innerHTML = `<i class="fa-solid fa-tower-broadcast text-xs"></i> Modulated Output Signal $s(t)$ [${state.mode}]`;
+        }
+
+        window.addEventListener('load', () => {
+            registerEventListeners();
+            updateModeUI();
+            renderLoop();
+        });
+    </script>
+</body>
+</html>
